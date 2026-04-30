@@ -1,0 +1,1 @@
+projede derste anlatılan şeylerde olsun örneğin dosya açma bulunsun bizim projede dosya açma butonu olur ona basınce yeni veri setini felan çekebilir ve benzeri.
