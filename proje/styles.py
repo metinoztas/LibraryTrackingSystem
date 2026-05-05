@@ -105,6 +105,26 @@ QPushButton:hover {{ background-color:#2D0F5E; color:#E879F9; }}
 QPushButton:pressed {{ background-color:#3B0764; }}
 """
 
+KULLANICI_GIRIS_BTN = f"""
+QPushButton {{
+    background-color:transparent; color:{YAZI_SOLUK};
+    font-family:'Segoe UI'; font-size:12px; font-weight:500;
+    text-align:left; padding-left:20px; border:none; border-radius:10px;
+}}
+QPushButton:hover {{ background-color:#0D2D3A; color:#22D3EE; }}
+QPushButton:pressed {{ background-color:#164E63; }}
+"""
+
+KULLANICI_AKTIF_BTN = f"""
+QPushButton {{
+    background-color:#0C2A38; color:#22D3EE;
+    font-family:'Segoe UI'; font-size:12px; font-weight:600;
+    text-align:left; padding-left:20px; border:1px solid #0E7490; border-radius:10px;
+}}
+QPushButton:hover {{ background-color:#164E63; color:#67E8F9; }}
+QPushButton:pressed {{ background-color:#155E75; }}
+"""
+
 KILITLI_BTN = f"""
 QPushButton {{
     background-color:#1a1a2e; color:#334155;

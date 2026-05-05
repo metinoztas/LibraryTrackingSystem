@@ -10,12 +10,20 @@ import sqlite3
 import os
 from datetime import date
 
+import numpy as np
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
+
 from PySide6.QtCore import QRect, QSize, Qt
 from PySide6.QtGui import QBrush, QColor, QCursor, QFont, QPalette
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QDialog, QDialogButtonBox,
-    QFileDialog, QFormLayout, QFrame, QHBoxLayout, QHeaderView, QLabel,
-    QLineEdit, QMainWindow, QMessageBox, QPushButton,
+    QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout,
+    QHeaderView, QLabel, QLineEdit, QMainWindow, QMessageBox,
+    QPushButton, QScrollArea, QSizePolicy, QStackedWidget,
     QTableWidget, QTableWidgetItem, QAbstractItemView, QVBoxLayout, QWidget
 )
 
@@ -26,7 +34,8 @@ from styles import (
     YAZI_BIRINCIL, YAZI_IKINCIL, YAZI_SOLUK, KENARLIK,
     DURUM_RENKLERI,
     GENEL_STIL, SIDEBAR_BTN, SIDEBAR_BTN_AKTIF, SIDEBAR_BTN_AYARLAR,
-    SIDEBAR_BTN_AYARLAR_AKTIF, ADMIN_GIRIS_BTN, ADMIN_AKTIF_BTN, KILITLI_BTN,
+    SIDEBAR_BTN_AYARLAR_AKTIF, ADMIN_GIRIS_BTN, ADMIN_AKTIF_BTN,
+    KULLANICI_GIRIS_BTN, KULLANICI_AKTIF_BTN, KILITLI_BTN,
     ARAMA_STILI, COMBO_STILI, EKLE_BTN_STILI, TABLO_STILI,
     DIYALOG_STILI, DUZENLE_BTN, SIL_BTN, IADE_BTN,
     golge_ekle, etiket
@@ -143,33 +152,103 @@ class OduncDiyalogu(QDialog):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  ADMİN GİRİŞ DİYALOGU
+#  GİRİŞ EKRANI (Başlangıç)
 # ══════════════════════════════════════════════════════════════════════════════
 
 # Sabit kimlik bilgileri — gerçek uygulamada hash'lenmiş DB'den gelmeli
-_ADMIN_KULLANICI = "admin"
-_ADMIN_SIFRE     = "admin123"
+_ADMIN_KULLANICI     = "admin"
+_ADMIN_SIFRE         = "admin123"
+_KULLANICI_KULLANICI = "kullanici"
+_KULLANICI_SIFRE     = "kullanici123"
+
+# Rol kartı stilleri
+_ROL_KART_PASIF = f"""
+QPushButton {{
+    background-color:{KART_ARKAPLAN}; color:{YAZI_IKINCIL};
+    font-family:'Segoe UI'; font-size:13px; font-weight:600;
+    border:2px solid {KENARLIK}; border-radius:12px; padding:14px;
+}}
+QPushButton:hover {{ border-color:{YAZI_IKINCIL}; color:{YAZI_BIRINCIL}; }}
+"""
+
+_ROL_KART_ADMIN = f"""
+QPushButton {{
+    background-color:#1A0533; color:#C084FC;
+    font-family:'Segoe UI'; font-size:13px; font-weight:700;
+    border:2px solid #6B21A8; border-radius:12px; padding:14px;
+}}
+"""
+
+_ROL_KART_KULLANICI = f"""
+QPushButton {{
+    background-color:#0C2A38; color:#22D3EE;
+    font-family:'Segoe UI'; font-size:13px; font-weight:700;
+    border:2px solid #0E7490; border-radius:12px; padding:14px;
+}}
+"""
 
 
-class AdminGirisDialog(QDialog):
-    def __init__(self, ebeveyn):
-        super().__init__(ebeveyn)
-        self.setWindowTitle("🔐 Admin Girişi")
-        self.setFixedSize(380, 240)
+class GirisEkrani(QDialog):
+    """Uygulama başlangıcında gösterilen giriş ekranı."""
+
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("📖 Kütüphane — Giriş")
+        self.setFixedSize(440, 460)
         self.setStyleSheet(DIYALOG_STILI)
+        self.rol = None          # "admin" veya "kullanici"
+        self._secili_rol = None  # Henüz seçilmedi
 
         ana = QVBoxLayout(self)
-        ana.setContentsMargins(32, 28, 32, 28)
-        ana.setSpacing(16)
+        ana.setContentsMargins(36, 32, 36, 28)
+        ana.setSpacing(18)
 
-        baslik = QLabel("🔐  Admin Girişi")
+        # ── Logo / Başlık ─────────────────────────────────────────────────
+        logo = QLabel("📖")
+        logo.setStyleSheet("font-size:38px; background:transparent; border:none;")
+        logo.setAlignment(Qt.AlignCenter)
+        ana.addWidget(logo)
+
+        baslik = QLabel("Kütüphane Yönetim Sistemi")
         baslik.setStyleSheet(
             f"color:{YAZI_BIRINCIL}; font-family:'Segoe UI';"
-            "font-size:17px; font-weight:700; background:transparent; border:none;"
+            "font-size:18px; font-weight:700; background:transparent; border:none;"
         )
         baslik.setAlignment(Qt.AlignCenter)
         ana.addWidget(baslik)
 
+        alt = QLabel("Devam etmek için giriş yapın")
+        alt.setStyleSheet(
+            f"color:{YAZI_SOLUK}; font-family:'Segoe UI';"
+            "font-size:11px; background:transparent; border:none;"
+        )
+        alt.setAlignment(Qt.AlignCenter)
+        ana.addWidget(alt)
+
+        # ── Rol Seçimi ────────────────────────────────────────────────────
+        rol_lbl = QLabel("Giriş türünü seçin:")
+        rol_lbl.setStyleSheet(
+            f"color:{YAZI_IKINCIL}; font-family:'Segoe UI';"
+            "font-size:11px; font-weight:600; background:transparent; border:none;"
+            "margin-top:4px;"
+        )
+        ana.addWidget(rol_lbl)
+
+        rol_satir = QHBoxLayout()
+        rol_satir.setSpacing(12)
+        self._btn_rol_kullanici = QPushButton("👤  Kullanıcı")
+        self._btn_rol_admin     = QPushButton("🔐  Admin")
+        for b in (self._btn_rol_kullanici, self._btn_rol_admin):
+            b.setFixedHeight(48)
+            b.setCursor(QCursor(Qt.PointingHandCursor))
+            b.setStyleSheet(_ROL_KART_PASIF)
+        self._btn_rol_kullanici.clicked.connect(lambda: self._rol_sec("kullanici"))
+        self._btn_rol_admin.clicked.connect(lambda: self._rol_sec("admin"))
+        rol_satir.addWidget(self._btn_rol_kullanici)
+        rol_satir.addWidget(self._btn_rol_admin)
+        ana.addLayout(rol_satir)
+
+        # ── Form ──────────────────────────────────────────────────────────
         form = QFormLayout()
         form.setSpacing(10)
         self.kullanici = QLineEdit()
@@ -181,6 +260,7 @@ class AdminGirisDialog(QDialog):
         form.addRow("Şifre:",     self.sifre)
         ana.addLayout(form)
 
+        # ── Hata mesajı ──────────────────────────────────────────────────
         self.hata_lbl = QLabel("")
         self.hata_lbl.setStyleSheet(
             f"color:{VURGU_KIRMIZI}; font-family:'Segoe UI';"
@@ -189,25 +269,44 @@ class AdminGirisDialog(QDialog):
         self.hata_lbl.setAlignment(Qt.AlignCenter)
         ana.addWidget(self.hata_lbl)
 
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        bb.button(QDialogButtonBox.Ok).setText("Giriş Yap")
-        bb.button(QDialogButtonBox.Cancel).setText("İptal")
-        bb.accepted.connect(self._dogrula)
-        bb.rejected.connect(self.reject)
-        ana.addWidget(bb)
+        # ── Giriş butonu ─────────────────────────────────────────────────
+        self.giris_btn = QPushButton("Giriş Yap")
+        self.giris_btn.setFixedHeight(42)
+        self.giris_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        self.giris_btn.clicked.connect(self._dogrula)
+        ana.addWidget(self.giris_btn)
 
-        # Enter tuşuyla giriş
         self.sifre.returnPressed.connect(self._dogrula)
+
+        # Varsayılan olarak kullanıcı seçili başlat
+        self._rol_sec("kullanici")
+
+    def _rol_sec(self, rol):
+        self._secili_rol = rol
+        self.hata_lbl.clear()
+        if rol == "admin":
+            self._btn_rol_admin.setStyleSheet(_ROL_KART_ADMIN)
+            self._btn_rol_kullanici.setStyleSheet(_ROL_KART_PASIF)
+        else:
+            self._btn_rol_kullanici.setStyleSheet(_ROL_KART_KULLANICI)
+            self._btn_rol_admin.setStyleSheet(_ROL_KART_PASIF)
 
     def _dogrula(self):
         k = self.kullanici.text().strip()
         s = self.sifre.text()
-        if k == _ADMIN_KULLANICI and s == _ADMIN_SIFRE:
-            self.accept()
+        if self._secili_rol == "admin":
+            if k == _ADMIN_KULLANICI and s == _ADMIN_SIFRE:
+                self.rol = "admin"
+                self.accept()
+                return
         else:
-            self.hata_lbl.setText("❌  Kullanıcı adı veya şifre yanlış!")
-            self.sifre.clear()
-            self.sifre.setFocus()
+            if k == _KULLANICI_KULLANICI and s == _KULLANICI_SIFRE:
+                self.rol = "kullanici"
+                self.accept()
+                return
+        self.hata_lbl.setText("❌  Kullanıcı adı veya şifre yanlış!")
+        self.sifre.clear()
+        self.sifre.setFocus()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -278,9 +377,10 @@ class AyarlarDialog(QDialog):
 
 class MainWindow(QMainWindow):
 
-    def __init__(self):
+    def __init__(self, rol):
         super().__init__()
-        self._admin_mod = False   # Admin oturum durumu
+        self._admin_mod     = (rol == "admin")
+        self._kullanici_mod = (rol == "kullanici")
         # Veritabanı
         self.db = sqlite3.connect(DB_YOLU)
         self.db.row_factory = sqlite3.Row
@@ -295,13 +395,14 @@ class MainWindow(QMainWindow):
         self.arama_kutusu.textChanged.connect(self.ara)
         self.kategori_combo.currentTextChanged.connect(self.kitaplari_yukle)
         self.ekle_btn.clicked.connect(self.ekle)
-        self._btn_admin.clicked.connect(self._admin_giris_cikis)
+        
+        self._btn_cikis.clicked.connect(self._cikis_yap)
         self._btn_ayar.clicked.connect(self._ayarlar_ac)
+        
         # Başlangıç
         self._kategori_yukle()
         self._istatistik_guncelle()
         self.kitaplar_sayfasi()
-        self._admin_ui_guncelle()
 
     # ══════════════════════════════════════════════════════════════════════════
     #  UI KURULUM
@@ -350,16 +451,22 @@ class MainWindow(QMainWindow):
         self.btn_odunc    = self._menu_btn(self._panel, "📄  Ödünç İşlemleri", 270)
         self.btn_rapor    = self._menu_btn(self._panel, "📊  Raporlar",        340)
 
-        # Alt butonlar: Admin Girişi + Ayarlar
-        self._btn_admin = QPushButton("🔐  Admin Girişi", self._panel)
-        self._btn_admin.setGeometry(QRect(12, 692, 216, 44))
-        self._btn_admin.setStyleSheet(ADMIN_GIRIS_BTN)
-        self._btn_admin.setCursor(QCursor(Qt.PointingHandCursor))
+        # Alt butonlar: Çıkış Yap + Ayarlar
+        rol_metin = "Admin" if self._admin_mod else "Kullanıcı"
+        rol_renk = "#C084FC" if self._admin_mod else "#22D3EE"
+        self._rol_bilgi = etiket(self._panel, f"Oturum: {rol_metin}", YAZI_SOLUK, 11, hizalama=Qt.AlignCenter)
+        self._rol_bilgi.setStyleSheet(f"color:{rol_renk}; font-weight:600; background:transparent;")
+        self._rol_bilgi.setGeometry(QRect(0, 640, self._SIDEBAR_W, 24))
+
+        self._btn_cikis = QPushButton("🚪  Çıkış Yap", self._panel)
+        self._btn_cikis.setGeometry(QRect(12, 692, 216, 44))
+        self._btn_cikis.setStyleSheet(SIDEBAR_BTN)
+        self._btn_cikis.setCursor(QCursor(Qt.PointingHandCursor))
 
         self._btn_ayar = QPushButton("⚙️  Ayarlar", self._panel)
         self._btn_ayar.setGeometry(QRect(12, 744, 216, 44))
-        self._btn_ayar.setStyleSheet(SIDEBAR_BTN_AYARLAR)
-        self._btn_ayar.setEnabled(False)    # Admin olmadan kilitli
+        self._btn_ayar.setStyleSheet(SIDEBAR_BTN_AYARLAR_AKTIF if self._admin_mod else SIDEBAR_BTN_AYARLAR)
+        self._btn_ayar.setEnabled(self._admin_mod)
         self._btn_ayar.setCursor(QCursor(Qt.PointingHandCursor))
 
         self._versiyon_etiketi = etiket(self._panel, "v1.0.0", YAZI_SOLUK, 10, hizalama=Qt.AlignCenter)
@@ -407,6 +514,9 @@ class MainWindow(QMainWindow):
 
         # Tablo alanı
         self._tablo_alani(self._alan)
+
+        # Rapor (grafik) alanı — başlangıçta gizli
+        self._rapor_alani(self._alan)
 
     def _istatistik_kartlari(self, ebeveyn):
         # Kart verilerini saklayarak resize sırasında geometrileri güncelleyebiliriz
@@ -461,6 +571,27 @@ class MainWindow(QMainWindow):
         p.setColor(QPalette.AlternateBase, QColor("#172035"))
         self.tablo.setPalette(p)
 
+    def _rapor_alani(self, ebeveyn):
+        """Raporlar sayfası için kaydırılabilir grafik alanı oluşturur."""
+        self._rapor_scroll = QScrollArea(ebeveyn)
+        self._rapor_scroll.setGeometry(QRect(24, 88, 812, 700))
+        self._rapor_scroll.setWidgetResizable(True)
+        self._rapor_scroll.setFrameShape(QFrame.NoFrame)
+        self._rapor_scroll.setStyleSheet(f"""
+            QScrollArea {{ background: transparent; border: none; }}
+            QScrollBar:vertical {{ background:{KOYU_ARKAPLAN}; width:8px; border-radius:4px; }}
+            QScrollBar::handle:vertical {{ background:{KENARLIK}; border-radius:4px; min-height:30px; }}
+            QScrollBar::handle:vertical:hover {{ background:{VURGU_MAVI}; }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height:0; }}
+        """)
+        self._rapor_icerik = QWidget()
+        self._rapor_icerik.setStyleSheet(f"background-color:{KOYU_ARKAPLAN};")
+        self._rapor_scroll.setWidget(self._rapor_icerik)
+        self._rapor_layout = QGridLayout(self._rapor_icerik)
+        self._rapor_layout.setSpacing(16)
+        self._rapor_layout.setContentsMargins(0, 0, 0, 16)
+        self._rapor_scroll.setVisible(False)
+
     # ══════════════════════════════════════════════════════════════════════════
     #  PENCERE YENİDEN BOYUTLANDIRMA
     # ══════════════════════════════════════════════════════════════════════════
@@ -487,7 +618,8 @@ class MainWindow(QMainWindow):
         for btn, ref_y in btn_yakonumlari.items():
             btn.setGeometry(12, int(ref_y * sy), btn_w, int(48 * sy))
 
-        self._btn_admin.setGeometry(12, h - int(120 * sy), btn_w, int(44 * sy))
+        self._rol_bilgi.setGeometry(0, h - int(160 * sy), sw, int(24 * sy))
+        self._btn_cikis.setGeometry(12, h - int(120 * sy), btn_w, int(44 * sy))
         self._btn_ayar.setGeometry(12, h - int(72 * sy), btn_w, int(44 * sy))
         self._versiyon_etiketi.setGeometry(0, h - int(24 * sy), sw, int(24 * sy))
 
@@ -528,6 +660,10 @@ class MainWindow(QMainWindow):
         self.kayit_sayisi.setGeometry(tablo_w - 200, 0, 190, 56)
         self.tablo.setGeometry(0, 56, tablo_w, tablo_h - 56)
 
+        # Rapor grafik alanı
+        rapor_h = h - 88 - 16
+        self._rapor_scroll.setGeometry(24, 88, tablo_w, rapor_h)
+
     # ══════════════════════════════════════════════════════════════════════════
     #  YARDIMCI UI METODLARI
     # ══════════════════════════════════════════════════════════════════════════
@@ -536,7 +672,7 @@ class MainWindow(QMainWindow):
         for b in [self.btn_kitaplar, self.btn_uyeler, self.btn_odunc, self.btn_rapor]:
             b.setStyleSheet(SIDEBAR_BTN_AKTIF if b is aktif else SIDEBAR_BTN)
 
-    def _sayfa_ayarla(self, baslik, alt, btn_metin, kat_goster, aktif_btn):
+    def _sayfa_ayarla(self, baslik, alt, btn_metin, kat_goster, aktif_btn, rapor=False):
         self.sayfa_baslik.setText(baslik)
         self.sayfa_alt.setText(alt)
         self.ekle_btn.setText(btn_metin)
@@ -544,6 +680,14 @@ class MainWindow(QMainWindow):
         self.arama_kutusu.clear()
         self.kategori_combo.setVisible(kat_goster)
         self._aktif_btn_ayarla(aktif_btn)
+        # Rapor sayfasında tablo gizle, grafik alanını göster
+        self._tablo_cerceve.setVisible(not rapor)
+        self._rapor_scroll.setVisible(rapor)
+        # Rapor sayfasında istatistik kartlarını ve arama/ekleme UI'ını gizle
+        for kart in self._kartlar:
+            kart.setVisible(not rapor)
+        self.arama_kutusu.setVisible(not rapor)
+        self.ekle_btn.setVisible(not rapor)
 
     def _tablo_hazirla(self, sutunlar, islemler_sutun_genisligi=100):
         self.tablo.clearContents()
@@ -598,7 +742,7 @@ class MainWindow(QMainWindow):
         kap.setStyleSheet("background:transparent;")
         d = QHBoxLayout(kap)
         d.setContentsMargins(14, 6, 4, 6)
-        if self._admin_mod:
+        if self._admin_mod or self._kullanici_mod:
             b = QPushButton("↩ İade Et")
             b.setFixedHeight(32)
             b.setStyleSheet(IADE_BTN)
@@ -608,7 +752,7 @@ class MainWindow(QMainWindow):
             b = QPushButton("🔒 Kilitli")
             b.setFixedHeight(32)
             b.setStyleSheet(KILITLI_BTN)
-            b.setToolTip("🔒 Admin girişi gerekli")
+            b.setToolTip("🔒 Giriş yapmanız gerekli")
             b.setCursor(QCursor(Qt.ForbiddenCursor))
         d.addWidget(b)
         d.addStretch()
@@ -621,39 +765,18 @@ class MainWindow(QMainWindow):
     #  BACKEND — İSTATİSTİK & KATEGORİ
     # ══════════════════════════════════════════════════════════════════════════
 
-    # ── Admin yönetimi ────────────────────────────────────────────────────────
+    # ── Oturum yönetimi ────────────────────────────────────────────────────────
 
-    def _admin_giris_cikis(self):
-        """Admin giriş/çıkış toggle."""
-        if self._admin_mod:
-            cevap = QMessageBox.question(
-                self, "Admin Çıkışı", "Admin oturumunu kapatmak istiyor musunuz?",
-                QMessageBox.Yes | QMessageBox.No
-            )
-            if cevap == QMessageBox.Yes:
-                self._admin_mod = False
-                self._admin_ui_guncelle()
-                self.ara()  # Tabloyu yenile (butonları kilitle)
-        else:
-            dlg = AdminGirisDialog(self)
-            if dlg.exec():
-                self._admin_mod = True
-                self._admin_ui_guncelle()
-                self.ara()  # Tabloyu yenile (butonları aç)
-                QMessageBox.information(self, "Başarılı", "✅ Admin olarak giriş yapıldı.")
-
-    def _admin_ui_guncelle(self):
-        """Admin durumuna göre sidebar butonlarının görünümünü günceller."""
-        if self._admin_mod:
-            self._btn_admin.setText("🔓  Admin Çıkışı")
-            self._btn_admin.setStyleSheet(ADMIN_AKTIF_BTN)
-            self._btn_ayar.setEnabled(True)
-            self._btn_ayar.setStyleSheet(SIDEBAR_BTN_AYARLAR_AKTIF)
-        else:
-            self._btn_admin.setText("🔐  Admin Girişi")
-            self._btn_admin.setStyleSheet(ADMIN_GIRIS_BTN)
-            self._btn_ayar.setEnabled(False)
-            self._btn_ayar.setStyleSheet(SIDEBAR_BTN_AYARLAR)
+    def _cikis_yap(self):
+        """Oturumu kapatıp uygulamayı giriş ekranına döndürür."""
+        cevap = QMessageBox.question(
+            self, "Çıkış Yap", "Oturumu kapatmak istediğinize emin misiniz?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if cevap == QMessageBox.Yes:
+            # Pencereyi kapat, bu sayede main()'deki app.exec() sonlanır ve
+            # while döngüsü tekrar GirisEkrani'ni gösterir.
+            self.close()
 
     def _ayarlar_ac(self):
         """Ayarlar diyaloğunu açar; sadece admin erişebilir."""
@@ -731,7 +854,7 @@ class MainWindow(QMainWindow):
     def rapor_sayfasi(self):
         self.sayfa = "rapor"
         self._sayfa_ayarla("Raporlar", "Genel istatistikler ve özetler",
-                            "—", False, self.btn_rapor)
+                            "—", False, self.btn_rapor, rapor=True)
         self.raporlari_yukle()
 
     def ara(self):
@@ -949,37 +1072,211 @@ class MainWindow(QMainWindow):
             self.oduncleri_yukle()
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  RAPORLAR
+    #  RAPORLAR — Matplotlib Grafikleri
     # ══════════════════════════════════════════════════════════════════════════
 
+    # ── Grafik renk paleti (koyu tema ile uyumlu) ─────────────────────────────
+    _GRAFIK_RENKLER = [
+        "#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6",
+        "#EC4899", "#06B6D4", "#F97316", "#14B8A6", "#A855F7",
+        "#6366F1", "#22D3EE", "#FB923C", "#4ADE80", "#F472B6",
+    ]
+
+    def _grafik_stili(self, fig, ax):
+        """Matplotlib figure ve axes'e koyu tema uygular."""
+        fig.patch.set_facecolor("#1E293B")
+        ax.set_facecolor("#1E293B")
+        ax.tick_params(colors="#94A3B8", labelsize=9)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.spines["left"].set_color("#334155")
+        ax.spines["bottom"].set_color("#334155")
+        ax.xaxis.label.set_color("#94A3B8")
+        ax.yaxis.label.set_color("#94A3B8")
+        ax.title.set_color("#F1F5F9")
+
+    def _grafik_karti(self, canvas):
+        """Bir matplotlib canvas'ı kart görünümlü QFrame'e sarar."""
+        kart = QFrame()
+        kart.setStyleSheet(
+            f"QFrame{{background-color:{KART_ARKAPLAN};"
+            f"border-radius:14px;border:1px solid {KENARLIK};}}"
+        )
+        layout = QVBoxLayout(kart)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.addWidget(canvas)
+        golge_ekle(kart, blur=20, y=4)
+        return kart
+
     def raporlari_yukle(self):
-        veriler = self.db.execute("""
+        """Rapor sayfasını 4 adet matplotlib grafiği ile doldurur."""
+        # Önceki grafikleri temizle
+        while self._rapor_layout.count():
+            item = self._rapor_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.setParent(None)
+                w.deleteLater()
+
+        # ── VERİ SORGULARI ────────────────────────────────────────────────────
+
+        # 1) Kategorilere göre kitap dağılımı
+        kat_veriler = self.db.execute("""
+            SELECT kategori, COUNT(*) AS toplam
+            FROM books GROUP BY kategori ORDER BY toplam DESC
+        """).fetchall()
+        kat_isim  = [r["kategori"] for r in kat_veriler]
+        kat_sayi  = [r["toplam"]   for r in kat_veriler]
+
+        # 2) Kategori bazlı ödünç durumu
+        durum_veriler = self.db.execute("""
             SELECT b.kategori,
-                   COUNT(b.kitap_id) AS toplam,
-                   SUM(CASE WHEN l.durum='ödünçte' THEN 1 ELSE 0 END) AS oduncte
+                   COUNT(DISTINCT b.kitap_id) AS toplam,
+                   COUNT(DISTINCT CASE WHEN l.durum='ödünçte' THEN l.odunc_id END) AS oduncte
             FROM books b
             LEFT JOIN loans l ON b.kitap_id = l.kitap_id
-            GROUP BY b.kategori
-            ORDER BY toplam DESC
+            GROUP BY b.kategori ORDER BY toplam DESC
         """).fetchall()
 
-        sutunlar = ["  Kategori", "  Toplam Kitap", "  Ödünçte", "  Mevcut"]
-        self._tablo_hazirla(sutunlar, islemler_sutun_genisligi=120)
-        self.tablo.setRowCount(len(veriler))
-        hv = self.tablo.horizontalHeader()
-        hv.setSectionResizeMode(0, QHeaderView.Stretch)
-        for i in range(1, len(sutunlar)):
-            hv.setSectionResizeMode(i, QHeaderView.ResizeToContents)
-        for satir, r in enumerate(veriler):
-            oduncte = r["oduncte"] or 0
-            self._satir(satir, [r["kategori"], str(r["toplam"]), str(oduncte), str(r["toplam"] - oduncte)])
-        self.kayit_sayisi.setText(f"{len(veriler)} kategori gösteriliyor")
+        # 3) Aylık ödünç trendi
+        ay_veriler = self.db.execute("""
+            SELECT strftime('%Y-%m', odunc_tarihi) AS ay, COUNT(*) AS sayi
+            FROM loans
+            WHERE odunc_tarihi != ''
+            GROUP BY ay ORDER BY ay
+        """).fetchall()
+
+        # 4) En çok ödünç alınan kitaplar (top 10)
+        pop_veriler = self.db.execute("""
+            SELECT b.kitap_adi, COUNT(l.odunc_id) AS odunc_sayi
+            FROM loans l
+            JOIN books b ON l.kitap_id = b.kitap_id
+            GROUP BY l.kitap_id
+            ORDER BY odunc_sayi DESC
+            LIMIT 10
+        """).fetchall()
+
+        # ── GRAFİK 1: Pasta — Kategorilere Göre Dağılım ──────────────────────
+        fig1 = Figure(figsize=(5, 3.5), dpi=100)
+        fig1.patch.set_facecolor("#1E293B")
+        ax1 = fig1.add_subplot(111)
+        ax1.set_facecolor("#1E293B")
+        renkler = self._GRAFIK_RENKLER[:len(kat_isim)]
+        wedges, texts, autotexts = ax1.pie(
+            kat_sayi, labels=None, autopct="%1.1f%%",
+            colors=renkler, startangle=140,
+            pctdistance=0.80,
+            wedgeprops={"linewidth": 1.5, "edgecolor": "#1E293B"},
+        )
+        for t in autotexts:
+            t.set_color("#F1F5F9")
+            t.set_fontsize(8)
+            t.set_fontweight("bold")
+        ax1.legend(
+            wedges, kat_isim, loc="center left", bbox_to_anchor=(1.0, 0.5),
+            fontsize=8, frameon=False, labelcolor="#94A3B8"
+        )
+        ax1.set_title("Kategorilere Göre Kitap Dağılımı", fontsize=13,
+                      fontweight="bold", color="#F1F5F9", pad=12)
+        fig1.tight_layout()
+        canvas1 = FigureCanvas(fig1)
+        canvas1.setMinimumHeight(300)
+
+        # ── GRAFİK 2: Gruplu Bar — Ödünç Durumu ──────────────────────────────
+        fig2 = Figure(figsize=(5, 3.5), dpi=100)
+        ax2 = fig2.add_subplot(111)
+        self._grafik_stili(fig2, ax2)
+        d_kat   = [r["kategori"]  for r in durum_veriler]
+        d_top   = [r["toplam"]    for r in durum_veriler]
+        d_odunc = [r["oduncte"] or 0 for r in durum_veriler]
+        d_mevcut = [t - o for t, o in zip(d_top, d_odunc)]
+        import numpy as np
+        x = np.arange(len(d_kat))
+        bar_w = 0.35
+        b1 = ax2.bar(x - bar_w / 2, d_mevcut, bar_w, label="Mevcut",
+                     color="#10B981", edgecolor="#1E293B", linewidth=0.5, zorder=3)
+        b2 = ax2.bar(x + bar_w / 2, d_odunc, bar_w, label="Ödünçte",
+                     color="#3B82F6", edgecolor="#1E293B", linewidth=0.5, zorder=3)
+        ax2.set_xticks(x)
+        ax2.set_xticklabels(d_kat, rotation=35, ha="right", fontsize=8, color="#94A3B8")
+        ax2.set_ylabel("Adet", fontsize=10)
+        ax2.set_title("Kategorilere Göre Ödünç Durumu", fontsize=13,
+                      fontweight="bold", color="#F1F5F9", pad=12)
+        ax2.legend(fontsize=9, frameon=False, labelcolor="#94A3B8")
+        ax2.grid(axis="y", color="#334155", linewidth=0.5, alpha=0.5)
+        ax2.set_axisbelow(True)
+        fig2.tight_layout()
+        canvas2 = FigureCanvas(fig2)
+        canvas2.setMinimumHeight(300)
+
+        # ── GRAFİK 3: Çizgi — Aylık Ödünç Trendi ─────────────────────────────
+        fig3 = Figure(figsize=(5, 3.5), dpi=100)
+        ax3 = fig3.add_subplot(111)
+        self._grafik_stili(fig3, ax3)
+        aylar  = [r["ay"]   for r in ay_veriler]
+        sayilar = [r["sayi"] for r in ay_veriler]
+        ax3.fill_between(range(len(aylar)), sayilar, alpha=0.15, color="#3B82F6")
+        ax3.plot(range(len(aylar)), sayilar, color="#3B82F6", linewidth=2.5,
+                 marker="o", markersize=5, markerfacecolor="#60A5FA",
+                 markeredgecolor="#1E293B", markeredgewidth=1.5, zorder=5)
+        ax3.set_xticks(range(len(aylar)))
+        ax3.set_xticklabels(aylar, rotation=45, ha="right", fontsize=7, color="#94A3B8")
+        ax3.set_ylabel("Ödünç Sayısı", fontsize=10)
+        ax3.set_title("Aylık Ödünç Alma Trendi", fontsize=13,
+                      fontweight="bold", color="#F1F5F9", pad=12)
+        ax3.grid(axis="y", color="#334155", linewidth=0.5, alpha=0.5)
+        ax3.set_axisbelow(True)
+        fig3.tight_layout()
+        canvas3 = FigureCanvas(fig3)
+        canvas3.setMinimumHeight(300)
+
+        # ── GRAFİK 4: Yatay Bar — En Popüler Kitaplar ────────────────────────
+        fig4 = Figure(figsize=(5, 3.5), dpi=100)
+        ax4 = fig4.add_subplot(111)
+        self._grafik_stili(fig4, ax4)
+        p_isim = [r["kitap_adi"][:25] + ("…" if len(r["kitap_adi"]) > 25 else "")
+                  for r in reversed(pop_veriler)]
+        p_sayi = [r["odunc_sayi"] for r in reversed(pop_veriler)]
+        renk_grad = ["#3B82F6" if i >= len(p_sayi) - 3 else "#60A5FA"
+                     for i in range(len(p_sayi))]
+        bars = ax4.barh(range(len(p_isim)), p_sayi, color=renk_grad,
+                        edgecolor="#1E293B", linewidth=0.5, height=0.6, zorder=3)
+        ax4.set_yticks(range(len(p_isim)))
+        ax4.set_yticklabels(p_isim, fontsize=8, color="#94A3B8")
+        ax4.set_xlabel("Ödünç Sayısı", fontsize=10)
+        ax4.set_title("En Çok Ödünç Alınan Kitaplar (Top 10)", fontsize=13,
+                      fontweight="bold", color="#F1F5F9", pad=12)
+        # Barların ucuna değer yaz
+        for bar, val in zip(bars, p_sayi):
+            ax4.text(bar.get_width() + 0.3, bar.get_y() + bar.get_height() / 2,
+                     str(val), va="center", fontsize=9, color="#60A5FA", fontweight="bold")
+        ax4.grid(axis="x", color="#334155", linewidth=0.5, alpha=0.5)
+        ax4.set_axisbelow(True)
+        fig4.tight_layout()
+        canvas4 = FigureCanvas(fig4)
+        canvas4.setMinimumHeight(300)
+
+        # ── Kartları grid'e yerleştir (2×2) ───────────────────────────────────
+        self._rapor_layout.addWidget(self._grafik_karti(canvas1), 0, 0)
+        self._rapor_layout.addWidget(self._grafik_karti(canvas2), 0, 1)
+        self._rapor_layout.addWidget(self._grafik_karti(canvas3), 1, 0)
+        self._rapor_layout.addWidget(self._grafik_karti(canvas4), 1, 1)
 
 
 # ── Uygulama başlangıcı ───────────────────────────────────────────────────────
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
-    pencere = MainWindow()
-    pencere.show()
-    sys.exit(app.exec())
+    
+    while True:
+        giris = GirisEkrani()
+        if giris.exec() == QDialog.Accepted:
+            # Giriş başarılı, ana pencereyi aç
+            pencere = MainWindow(giris.rol)
+            pencere.show()
+            app.exec()  # Pencere kapatılana kadar bekle
+        else:
+            # Çarpıya basıp iptal edildiyse tamamen çık
+            break
+            
+    sys.exit(0)

@@ -1,2 +1,7 @@
+--- Admin ---
 kadi = admin
 sifre = admin123
+
+--- Kullanici ---
+kadi = kullanici
+sifre = kullanici123
